@@ -30,7 +30,16 @@ Objetivo: Crear un editor de texto plano independiente, ligero y solo con librer
 - Fuente monoespaciada para mejor legibilidad
 - Ajuste de linea
 - Elegir tipo de letra (Monoespaciada) y tamaño
+- Elegir color de fuente y color de fondo
 - Elegir visibilidad de toolbar SI/NO
+- hacer undo y redo hasta 30 pasos atras o adelante, guardar los 60 pasos en el .cfg por si necesito hacerlos en la proxima sesion
+- hacer autoguardado
+- hacer encriptado de desencriptado con una clave para cada vez que abro la aplicacion
+
+### Cifrado
+- Metodo XOR: encripta y desencripta
+- Utiliza una llave local (publica):'E1!d2#U3$a4%R5&d6=O7|r8°U9.f0_E1-i2!L3#f4$I5%o6&R7=i8|' y le agrega sobre ella la clave del usuario (privada)
+- la clave la define para la sesion y encripta y desencripta todos los archivos de esa sesion con la misma clave.
 
 ## Requisitos
 

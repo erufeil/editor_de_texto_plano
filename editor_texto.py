@@ -30,6 +30,12 @@ class EditorTexto:
         self.color_fuente = "black"
         self.color_fondo = "white"
 
+        # Sistema de undo/redo extendido
+        self.historial_undo = []  # Lista de estados para deshacer
+        self.historial_redo = []  # Lista de estados para rehacer
+        self.max_historial = 60   # Máximo de pasos guardados
+        self.ultimo_contenido = ""  # Para detectar cambios
+
         # Cargar configuración
         self.cargar_configuracion()
 
@@ -115,8 +121,7 @@ class EditorTexto:
         self.area_texto = tk.Text(
             frame_texto,
             wrap=tk.NONE,
-            undo=True,
-            maxundo=50,
+            undo=False,  # Desactivar undo nativo, usaremos nuestro sistema
             font=(self.fuente_actual, self.tamanio_fuente),
             bg=self.color_fondo,
             fg=self.color_fuente,
@@ -153,6 +158,10 @@ class EditorTexto:
         self.area_texto.bind('<KeyPress>', self.auto_scroll)
         self.area_texto.bind('<Button-1>', self.actualizar_barra_estado)
         self.area_texto.bind('<<Modified>>', self.texto_modificado_evento)
+        # Capturar cambios significativos para el historial
+        self.area_texto.bind('<KeyRelease>', self.guardar_estado_historial, add='+')
+        self.area_texto.bind('<<Paste>>', self.guardar_estado_historial_inmediato, add='+')
+        self.area_texto.bind('<<Cut>>', self.guardar_estado_historial_inmediato, add='+')
         self.root.protocol("WM_DELETE_WINDOW", self.salir)
         
     def configurar_atajos(self):
@@ -223,6 +232,10 @@ class EditorTexto:
             self.area_texto.delete("1.0", tk.END)
             self.archivo_actual = None
             self.texto_modificado = False
+            # Reiniciar historial para el nuevo archivo
+            self.historial_undo.clear()
+            self.historial_redo.clear()
+            self.ultimo_contenido = ""
             self.actualizar_titulo()
             
     def abrir_archivo(self):
@@ -242,6 +255,10 @@ class EditorTexto:
                     self.area_texto.insert("1.0", contenido)
                     self.archivo_actual = archivo
                     self.texto_modificado = False
+                    # Reiniciar historial para el archivo recién abierto
+                    self.historial_undo.clear()
+                    self.historial_redo.clear()
+                    self.ultimo_contenido = contenido
                     self.actualizar_titulo()
                     self.guardar_configuracion()
                 except Exception as e:
@@ -300,17 +317,105 @@ class EditorTexto:
                 return False
         return True
         
+    def guardar_estado_historial(self, event):
+        """Guarda el estado actual en el historial de undo (con retardo para agrupar teclas)"""
+        # Cancelar el temporizador anterior si existe
+        if hasattr(self, '_timer_historial'):
+            self.root.after_cancel(self._timer_historial)
+
+        # Programar guardar el estado en 500ms (agrupa escritura rápida)
+        self._timer_historial = self.root.after(500, self._guardar_estado_ahora)
+
+    def guardar_estado_historial_inmediato(self, event):
+        """Guarda el estado inmediatamente (para cortar/pegar)"""
+        self.root.after(10, self._guardar_estado_ahora)
+
+    def _guardar_estado_ahora(self):
+        """Guarda el estado actual en el historial"""
+        contenido_actual = self.area_texto.get("1.0", tk.END + "-1c")
+
+        # Solo guardar si hay cambios
+        if contenido_actual != self.ultimo_contenido:
+            # Obtener posición del cursor
+            cursor_pos = self.area_texto.index(tk.INSERT)
+
+            # Agregar al historial de undo
+            self.historial_undo.append({
+                'contenido': self.ultimo_contenido,
+                'cursor': cursor_pos
+            })
+
+            # Limitar el tamaño del historial
+            if len(self.historial_undo) > self.max_historial:
+                self.historial_undo.pop(0)
+
+            # Limpiar el historial de redo cuando se hace un cambio nuevo
+            self.historial_redo.clear()
+
+            # Actualizar el último contenido
+            self.ultimo_contenido = contenido_actual
+
     def deshacer(self):
-        try:
-            self.area_texto.edit_undo()
-        except tk.TclError:
-            pass
-            
+        """Deshacer el último cambio"""
+        if self.historial_undo:
+            # Guardar el estado actual en redo antes de deshacer
+            contenido_actual = self.area_texto.get("1.0", tk.END + "-1c")
+            cursor_actual = self.area_texto.index(tk.INSERT)
+
+            self.historial_redo.append({
+                'contenido': contenido_actual,
+                'cursor': cursor_actual
+            })
+
+            # Limitar redo
+            if len(self.historial_redo) > self.max_historial:
+                self.historial_redo.pop(0)
+
+            # Restaurar el estado anterior
+            estado = self.historial_undo.pop()
+            self.area_texto.delete("1.0", tk.END)
+            self.area_texto.insert("1.0", estado['contenido'])
+
+            # Restaurar posición del cursor
+            try:
+                self.area_texto.mark_set(tk.INSERT, estado['cursor'])
+                self.area_texto.see(tk.INSERT)
+            except tk.TclError:
+                pass
+
+            # Actualizar el último contenido
+            self.ultimo_contenido = estado['contenido']
+
     def rehacer(self):
-        try:
-            self.area_texto.edit_redo()
-        except tk.TclError:
-            pass
+        """Rehacer el último cambio deshecho"""
+        if self.historial_redo:
+            # Guardar estado actual en undo
+            contenido_actual = self.area_texto.get("1.0", tk.END + "-1c")
+            cursor_actual = self.area_texto.index(tk.INSERT)
+
+            self.historial_undo.append({
+                'contenido': contenido_actual,
+                'cursor': cursor_actual
+            })
+
+            # Limitar undo
+            if len(self.historial_undo) > self.max_historial:
+                self.historial_undo.pop(0)
+
+            # Restaurar el estado
+            estado = self.historial_redo.pop()
+            self.area_texto.delete("1.0", tk.END)
+            self.area_texto.insert("1.0", estado['contenido'])
+
+            # Restaurar posición del cursor
+            try:
+                self.area_texto.mark_set(tk.INSERT, estado['cursor'])
+                self.area_texto.see(tk.INSERT)
+            except tk.TclError:
+                pass
+
+            # Actualizar el último contenido
+            self.ultimo_contenido = estado['contenido']
             
     def cortar(self):
         try:
@@ -400,6 +505,10 @@ class EditorTexto:
                 self.color_fuente = config.get('color_fuente', 'black')
                 self.color_fondo = config.get('color_fondo', 'white')
 
+                # Cargar historial de undo/redo
+                self.historial_undo = config.get('historial_undo', [])
+                self.historial_redo = config.get('historial_redo', [])
+
         except Exception as e:
             # Si hay error al cargar, usar valores por defecto
             print(f"Error al cargar configuración: {e}")
@@ -414,7 +523,9 @@ class EditorTexto:
                 'fuente': self.fuente_actual,
                 'tamanio_fuente': self.tamanio_fuente,
                 'color_fuente': self.color_fuente,
-                'color_fondo': self.color_fondo
+                'color_fondo': self.color_fondo,
+                'historial_undo': self.historial_undo,
+                'historial_redo': self.historial_redo
             }
 
             with open(self.config_file, 'w', encoding='utf-8') as f:
@@ -452,6 +563,9 @@ class EditorTexto:
             if self.archivo_actual:
                 # El archivo no existe, limpiar la referencia
                 self.archivo_actual = None
+
+        # Inicializar el último contenido para el sistema de historial
+        self.ultimo_contenido = self.area_texto.get("1.0", tk.END + "-1c")
 
     def detectar_fuentes_mono(self):
         """Detecta las fuentes monoespaciadas disponibles en el sistema"""
@@ -632,6 +746,8 @@ class EditorTexto:
 
     def salir(self):
         if self.verificar_cambios():
+            # Guardar la configuración final antes de salir
+            self.guardar_configuracion()
             self.root.quit()
             
     def ejecutar(self):
