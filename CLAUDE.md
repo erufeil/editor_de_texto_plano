@@ -15,6 +15,7 @@ Objetivo: Crear un editor de texto plano independiente, ligero y solo con librer
 - Abrir archivo desde cualquier carpeta (Ctrl+O)
 - Guardar archivo (Ctrl+S)
 - Guardar como (Ctrl+Shift+S)
+- Guardar la configuracion automaticamente
 
 ### Edición de Texto
 - Deshacer/Rehacer (Ctrl+Z/Ctrl+Y)
@@ -27,6 +28,9 @@ Objetivo: Crear un editor de texto plano independiente, ligero y solo con librer
 - Barra de estado con posición del cursor y contador de caracteres
 - Scrollbars horizontal y vertical
 - Fuente monoespaciada para mejor legibilidad
+- Ajuste de linea
+- Elegir tipo de letra (Monoespaciada) y tamaño
+- Elegir visibilidad de toolbar SI/NO
 
 ## Requisitos
 
