@@ -1,6 +1,5 @@
-# Editor de Texto Simple
-
-Un editor de texto plano ligero y completamente independiente desarrollado en Python con tkinter.
+Rol: Eres un experto programador python 
+Objetivo: Crear un editor de texto plano independiente, ligero y solo con librerias nativas de python.
 
 ## Características
 
@@ -33,31 +32,3 @@ Un editor de texto plano ligero y completamente independiente desarrollado en Py
 
 - Python 3.x (tkinter incluido por defecto)
 - No requiere instalación de paquetes adicionales
-
-## Uso
-
-### Opción 1: Ejecutar directamente
-```bash
-python editor_texto.py
-```
-
-### Opción 2: Usar el archivo batch (Windows)
-Hacer doble clic en `ejecutar_editor.bat`
-
-## Distribución
-
-Para crear un ejecutable independiente, puedes usar PyInstaller:
-
-```bash
-pip install pyinstaller
-pyinstaller --onefile --windowed editor_texto.py
-```
-
-Esto creará un archivo .exe en la carpeta `dist/` que no requiere Python instalado.
-
-## Personalización
-
-El editor es fácilmente personalizable:
-- Cambiar fuente en la línea: `font=("Consolas", 11)`
-- Modificar colores en las propiedades `bg`, `fg`, etc.
-- Añadir nuevas funcionalidades extendiendo la clase `EditorTexto`
