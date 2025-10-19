@@ -4,6 +4,7 @@ from tkinter import ttk
 from tkinter import font as tkfont
 import os
 import json
+import base64
 
 class EditorTexto:
     def __init__(self):
@@ -35,6 +36,15 @@ class EditorTexto:
         self.historial_redo = []  # Lista de estados para rehacer
         self.max_historial = 60   # Máximo de pasos guardados
         self.ultimo_contenido = ""  # Para detectar cambios
+
+        # Sistema de cifrado
+        self.llave_publica = 'E1!d2#U3$a4%R5&d6=O7|r8°U9.f0_E1-i2!L3#f4$I5%o6&R7=i8|'
+        self.clave_sesion = None
+        self.llave_completa = None
+        self.cifrado_activo = False
+
+        # Solicitar clave de sesión al inicio
+        self.solicitar_clave_sesion()
 
         # Cargar configuración
         self.cargar_configuracion()
@@ -97,6 +107,12 @@ class EditorTexto:
         menu_formato.add_separator()
         menu_formato.add_command(label="Color de fuente...", command=self.cambiar_color_fuente)
         menu_formato.add_command(label="Color de fondo...", command=self.cambiar_color_fondo)
+
+        # Menú Seguridad
+        menu_seguridad = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Seguridad", menu=menu_seguridad)
+        menu_seguridad.add_command(label="Cambiar clave de cifrado...", command=self.cambiar_clave_cifrado)
+        menu_seguridad.add_command(label="Estado de cifrado", command=self.mostrar_estado_cifrado)
         
     def crear_toolbar(self):
         self.toolbar = ttk.Frame(self.root)
@@ -244,6 +260,7 @@ class EditorTexto:
                 title="Abrir archivo",
                 filetypes=[
                     ("Archivos de texto", "*.txt"),
+                    ("Archivos cifrados", "*.enc"),
                     ("Todos los archivos", "*.*")
                 ]
             )
@@ -251,14 +268,29 @@ class EditorTexto:
                 try:
                     with open(archivo, 'r', encoding='utf-8') as f:
                         contenido = f.read()
+
+                    # Descifrar si el cifrado está activo
+                    contenido_descifrado = self.descifrar_xor(contenido)
+
+                    # Si el descifrado falló, abrir archivo nuevo en blanco
+                    if contenido_descifrado is None:
+                        self.area_texto.delete("1.0", tk.END)
+                        self.archivo_actual = None
+                        self.texto_modificado = False
+                        self.historial_undo.clear()
+                        self.historial_redo.clear()
+                        self.ultimo_contenido = ""
+                        self.actualizar_titulo()
+                        return
+
                     self.area_texto.delete("1.0", tk.END)
-                    self.area_texto.insert("1.0", contenido)
+                    self.area_texto.insert("1.0", contenido_descifrado)
                     self.archivo_actual = archivo
                     self.texto_modificado = False
                     # Reiniciar historial para el archivo recién abierto
                     self.historial_undo.clear()
                     self.historial_redo.clear()
-                    self.ultimo_contenido = contenido
+                    self.ultimo_contenido = contenido_descifrado
                     self.actualizar_titulo()
                     self.guardar_configuracion()
                 except Exception as e:
@@ -268,8 +300,12 @@ class EditorTexto:
         if self.archivo_actual:
             try:
                 contenido = self.area_texto.get("1.0", tk.END + "-1c")
+
+                # Cifrar si el cifrado está activo
+                contenido_a_guardar = self.cifrar_xor(contenido)
+
                 with open(self.archivo_actual, 'w', encoding='utf-8') as f:
-                    f.write(contenido)
+                    f.write(contenido_a_guardar)
                 self.texto_modificado = False
                 self.actualizar_titulo()
                 return True
@@ -280,19 +316,27 @@ class EditorTexto:
             return self.guardar_como()
             
     def guardar_como(self):
+        # Determinar extensión por defecto según si hay cifrado activo
+        extension_default = ".enc" if self.cifrado_activo else ".txt"
+
         archivo = filedialog.asksaveasfilename(
             title="Guardar como",
-            defaultextension=".txt",
+            defaultextension=extension_default,
             filetypes=[
                 ("Archivos de texto", "*.txt"),
+                ("Archivos cifrados", "*.enc"),
                 ("Todos los archivos", "*.*")
             ]
         )
         if archivo:
             try:
                 contenido = self.area_texto.get("1.0", tk.END + "-1c")
+
+                # Cifrar si el cifrado está activo
+                contenido_a_guardar = self.cifrar_xor(contenido)
+
                 with open(archivo, 'w', encoding='utf-8') as f:
-                    f.write(contenido)
+                    f.write(contenido_a_guardar)
                 self.archivo_actual = archivo
                 self.texto_modificado = False
                 self.actualizar_titulo()
@@ -553,10 +597,21 @@ class EditorTexto:
             try:
                 with open(self.archivo_actual, 'r', encoding='utf-8') as f:
                     contenido = f.read()
-                self.area_texto.delete("1.0", tk.END)
-                self.area_texto.insert("1.0", contenido)
-                self.texto_modificado = False
-                self.actualizar_titulo()
+
+                # Descifrar si el cifrado está activo
+                contenido_descifrado = self.descifrar_xor(contenido)
+
+                # Si el descifrado falló, limpiar y empezar con archivo nuevo
+                if contenido_descifrado is None:
+                    self.archivo_actual = None
+                    self.area_texto.delete("1.0", tk.END)
+                    self.texto_modificado = False
+                    self.actualizar_titulo()
+                else:
+                    self.area_texto.delete("1.0", tk.END)
+                    self.area_texto.insert("1.0", contenido_descifrado)
+                    self.texto_modificado = False
+                    self.actualizar_titulo()
             except Exception:
                 self.archivo_actual = None
         else:
@@ -744,12 +799,147 @@ class EditorTexto:
             self.area_texto.config(bg=self.color_fondo)
             self.guardar_configuracion()
 
+    def solicitar_clave_sesion(self):
+        """Solicita la clave de sesión al usuario al iniciar la aplicación"""
+        # Crear ventana de diálogo
+        dialogo = tk.Toplevel(self.root)
+        dialogo.title("Clave de Sesión")
+        dialogo.geometry("450x200")
+        dialogo.resizable(False, False)
+        dialogo.transient(self.root)
+        dialogo.grab_set()
+
+        # Centrar el diálogo
+        dialogo.update_idletasks()
+        x = (dialogo.winfo_screenwidth() - dialogo.winfo_width()) // 2
+        y = (dialogo.winfo_screenheight() - dialogo.winfo_height()) // 2
+        dialogo.geometry(f"+{x}+{y}")
+
+        # Contenido
+        frame = ttk.Frame(dialogo, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="Ingrese la clave de cifrado para esta sesión:").pack(pady=(0, 10))
+        ttk.Label(frame, text="(Dejar vacío para trabajar sin cifrado)", font=('', 9, 'italic')).pack(pady=(0, 10))
+
+        # Campo de entrada de clave
+        entrada_clave = ttk.Entry(frame, show="*", width=40)
+        entrada_clave.pack(pady=10)
+        entrada_clave.focus()
+
+        # Variable para controlar el cierre
+        clave_ingresada = {'valor': None}
+
+        def aceptar():
+            clave = entrada_clave.get()
+            if clave:
+                # Generar llave completa combinando pública + privada
+                self.clave_sesion = clave
+                self.llave_completa = self.llave_publica + clave
+                self.cifrado_activo = True
+            else:
+                self.cifrado_activo = False
+            clave_ingresada['valor'] = True
+            dialogo.destroy()
+
+        def cancelar():
+            self.cifrado_activo = False
+            clave_ingresada['valor'] = True
+            dialogo.destroy()
+
+        # Botones con mayor tamaño
+        frame_botones = ttk.Frame(frame)
+        frame_botones.pack(pady=10)
+
+        # Crear estilo para botones más grandes
+        style = ttk.Style()
+        style.configure('Grande.TButton', padding=(10, 8))
+
+        ttk.Button(frame_botones, text="Aceptar", command=aceptar, style='Grande.TButton', width=15).pack(side=tk.LEFT, padx=5)
+        ttk.Button(frame_botones, text="Sin cifrado", command=cancelar, style='Grande.TButton', width=15).pack(side=tk.LEFT, padx=5)
+
+        # Permitir Enter para aceptar
+        entrada_clave.bind('<Return>', lambda _: aceptar())
+
+        # Esperar a que se cierre el diálogo
+        dialogo.wait_window()
+
+    def cifrar_xor(self, texto):
+        """Cifra o descifra texto usando XOR con la llave completa"""
+        if not self.cifrado_activo or not self.llave_completa:
+            return texto
+
+        # Convertir texto a bytes
+        texto_bytes = texto.encode('utf-8')
+        llave_bytes = self.llave_completa.encode('utf-8')
+
+        # Aplicar XOR
+        resultado = bytearray()
+        for i, byte in enumerate(texto_bytes):
+            # Usar módulo para repetir la llave si el texto es más largo
+            llave_byte = llave_bytes[i % len(llave_bytes)]
+            resultado.append(byte ^ llave_byte)
+
+        # Codificar en base64 para que sea seguro guardarlo como texto
+        return base64.b64encode(resultado).decode('utf-8')
+
+    def descifrar_xor(self, texto_cifrado):
+        """Descifra texto cifrado con XOR. Retorna None si falla."""
+        if not self.cifrado_activo or not self.llave_completa:
+            return texto_cifrado
+
+        try:
+            # Decodificar de base64
+            datos_cifrados = base64.b64decode(texto_cifrado.encode('utf-8'))
+            llave_bytes = self.llave_completa.encode('utf-8')
+
+            # Aplicar XOR (es reversible)
+            resultado = bytearray()
+            for i, byte in enumerate(datos_cifrados):
+                llave_byte = llave_bytes[i % len(llave_bytes)]
+                resultado.append(byte ^ llave_byte)
+
+            # Convertir de vuelta a texto
+            return resultado.decode('utf-8')
+        except Exception as e:
+            messagebox.showerror("Error de descifrado",
+                f"No se pudo descifrar el archivo. La clave es incorrecta o el archivo está corrupto.\n\n{str(e)}")
+            return None
+
+    def cambiar_clave_cifrado(self):
+        """Permite cambiar la clave de cifrado durante la sesión"""
+        respuesta = messagebox.askyesno(
+            "Cambiar clave de cifrado",
+            "¿Desea cambiar la clave de cifrado?\n\n"
+            "ADVERTENCIA: Los archivos ya guardados seguirán cifrados con la clave anterior.\n"
+            "Solo los nuevos archivos usarán la nueva clave."
+        )
+        if respuesta:
+            self.solicitar_clave_sesion()
+            if self.cifrado_activo:
+                messagebox.showinfo("Clave cambiada", "La clave de cifrado ha sido actualizada para esta sesión.")
+            else:
+                messagebox.showinfo("Cifrado desactivado", "El cifrado ha sido desactivado para esta sesión.")
+
+    def mostrar_estado_cifrado(self):
+        """Muestra el estado actual del cifrado"""
+        if self.cifrado_activo:
+            estado = f"CIFRADO ACTIVO\n\n"
+            estado += f"Clave de sesión: {'*' * len(self.clave_sesion)}\n"
+            estado += f"Longitud de clave: {len(self.clave_sesion)} caracteres\n"
+            estado += f"Longitud de llave completa: {len(self.llave_completa)} caracteres"
+        else:
+            estado = "CIFRADO DESACTIVADO\n\n"
+            estado += "Los archivos se guardan y abren sin cifrar."
+
+        messagebox.showinfo("Estado de Cifrado", estado)
+
     def salir(self):
         if self.verificar_cambios():
             # Guardar la configuración final antes de salir
             self.guardar_configuracion()
             self.root.quit()
-            
+
     def ejecutar(self):
         self.root.mainloop()
 
