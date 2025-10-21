@@ -1,4 +1,5 @@
 Rol: Eres un experto programador python 
+
 Objetivo: Crear un editor de texto plano independiente, ligero y solo con librerias nativas de python.
 
 ## Características
@@ -34,14 +35,17 @@ Objetivo: Crear un editor de texto plano independiente, ligero y solo con librer
 - Elegir visibilidad de toolbar SI/NO
 - hacer undo y redo hasta 30 pasos atras o adelante, guardar los 60 pasos en el .cfg por si necesito hacerlos en la proxima sesion
 - hacer autoguardado
-- hacer encriptado de desencriptado con una clave para cada vez que abro la aplicacion
+- hacer encriptado de desencriptado con una clave para cada vez que abro la aplicacion y con la misma clave abra todos los archivos
+- El metodo de encriptado tiene que tener un marcador y reiniciar cada 512 caracteres para recuperarse de un caracter corrupto con proceso de recuperacion
 
 ### Cifrado
 - Metodo XOR: encripta y desencripta
 - Utiliza una llave local (publica):'E1!d2#U3$a4%R5&d6=O7|r8°U9.f0_E1-i2!L3#f4$I5%o6&R7=i8|' y le agrega sobre ella la clave del usuario (privada)
 - la clave la define para la sesion y encripta y desencripta todos los archivos de esa sesion con la misma clave.
+- aunque el archivo encriptado estuviese corrompido no deberia perder toda la informacion, deberia desencriptar todo lo posible.
 
 ## Requisitos
 
 - Python 3.x (tkinter incluido por defecto)
 - No requiere instalación de paquetes adicionales
+- Compilar el editor de texto en un ejecutable portable de Windows (.exe) que no requiere instalación.

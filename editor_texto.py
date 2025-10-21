@@ -5,6 +5,8 @@ from tkinter import font as tkfont
 import os
 import json
 import base64
+import hashlib
+import zlib
 
 class EditorTexto:
     def __init__(self):
@@ -42,6 +44,7 @@ class EditorTexto:
         self.clave_sesion = None
         self.llave_completa = None
         self.cifrado_activo = False
+        self.tamanio_bloque = 512  # Tamaño de bloque en bytes (texto plano)
 
         # Solicitar clave de sesión al inicio
         self.solicitar_clave_sesion()
@@ -65,12 +68,12 @@ class EditorTexto:
         self.configurar_atajos()
         
     def crear_menu(self):
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
-        
+        self.menubar = tk.Menu(self.root)
+        self.root.config(menu=self.menubar)
+
         # Menú Archivo
-        menu_archivo = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Archivo", menu=menu_archivo)
+        menu_archivo = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Archivo", menu=menu_archivo)
         menu_archivo.add_command(label="Nuevo", command=self.nuevo_archivo, accelerator="Ctrl+N")
         menu_archivo.add_command(label="Abrir", command=self.abrir_archivo, accelerator="Ctrl+O")
         menu_archivo.add_separator()
@@ -78,10 +81,10 @@ class EditorTexto:
         menu_archivo.add_command(label="Guardar como", command=self.guardar_como, accelerator="Ctrl+Shift+S")
         menu_archivo.add_separator()
         menu_archivo.add_command(label="Salir", command=self.salir, accelerator="Ctrl+Q")
-        
+
         # Menú Editar
-        menu_editar = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Editar", menu=menu_editar)
+        menu_editar = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Editar", menu=menu_editar)
         menu_editar.add_command(label="Deshacer", command=self.deshacer, accelerator="Ctrl+Z")
         menu_editar.add_command(label="Rehacer", command=self.rehacer, accelerator="Ctrl+Y")
         menu_editar.add_separator()
@@ -91,17 +94,17 @@ class EditorTexto:
         menu_editar.add_separator()
         menu_editar.add_command(label="Buscar", command=self.buscar, accelerator="Ctrl+F")
         menu_editar.add_command(label="Reemplazar", command=self.reemplazar, accelerator="Ctrl+H")
-        
+
         # Menú Ver
-        menu_ver = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Ver", menu=menu_ver)
+        menu_ver = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Ver", menu=menu_ver)
         # Ajuste de línea: al activarlo, Text.wrap = 'word' y ocultar scrollbar horizontal
         menu_ver.add_checkbutton(label="Ajuste de línea", command=self.toggle_ajuste_linea, variable=self.ajuste_linea_var)
         menu_ver.add_checkbutton(label="Barra de herramientas", command=self.toggle_toolbar, variable=self.toolbar_visible_var)
 
         # Menú Formato
-        menu_formato = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Formato", menu=menu_formato)
+        menu_formato = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Formato", menu=menu_formato)
         menu_formato.add_command(label="Fuente...", command=self.cambiar_fuente)
         menu_formato.add_command(label="Tamaño de fuente...", command=self.cambiar_tamanio_fuente)
         menu_formato.add_separator()
@@ -109,11 +112,15 @@ class EditorTexto:
         menu_formato.add_command(label="Color de fondo...", command=self.cambiar_color_fondo)
 
         # Menú Seguridad
-        menu_seguridad = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Seguridad", menu=menu_seguridad)
+        menu_seguridad = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label="Seguridad", menu=menu_seguridad)
         menu_seguridad.add_command(label="Cambiar clave de cifrado...", command=self.cambiar_clave_cifrado)
         menu_seguridad.add_command(label="Estado de cifrado", command=self.mostrar_estado_cifrado)
-        
+
+        # Indicador de cifrado a la derecha (se actualiza después de solicitar clave)
+        self.label_cifrado_menu = None
+        self.actualizar_indicador_cifrado()
+
     def crear_toolbar(self):
         self.toolbar = ttk.Frame(self.root)
         self.toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=2)
@@ -865,7 +872,7 @@ class EditorTexto:
         dialogo.wait_window()
 
     def cifrar_xor(self, texto):
-        """Cifra o descifra texto usando XOR con la llave completa"""
+        """Cifra texto usando XOR por bloques independientes con checksums"""
         if not self.cifrado_activo or not self.llave_completa:
             return texto
 
@@ -873,21 +880,137 @@ class EditorTexto:
         texto_bytes = texto.encode('utf-8')
         llave_bytes = self.llave_completa.encode('utf-8')
 
-        # Aplicar XOR
-        resultado = bytearray()
-        for i, byte in enumerate(texto_bytes):
-            # Usar módulo para repetir la llave si el texto es más largo
-            llave_byte = llave_bytes[i % len(llave_bytes)]
-            resultado.append(byte ^ llave_byte)
+        # Dividir en bloques
+        bloques_cifrados = []
+        for i in range(0, len(texto_bytes), self.tamanio_bloque):
+            bloque = texto_bytes[i:i + self.tamanio_bloque]
 
-        # Codificar en base64 para que sea seguro guardarlo como texto
-        return base64.b64encode(resultado).decode('utf-8')
+            # Calcular checksum del bloque original (CRC32)
+            checksum = zlib.crc32(bloque) & 0xffffffff
+
+            # Aplicar XOR al bloque
+            bloque_cifrado = bytearray()
+            for j, byte in enumerate(bloque):
+                llave_byte = llave_bytes[j % len(llave_bytes)]
+                bloque_cifrado.append(byte ^ llave_byte)
+
+            # Convertir bloque cifrado a base64
+            bloque_b64 = base64.b64encode(bloque_cifrado).decode('utf-8')
+
+            # Formato: CHECKSUM|BASE64_DATA
+            bloques_cifrados.append(f"{checksum:08X}|{bloque_b64}")
+
+        # Unir bloques con marcador de separación
+        # Formato final: HEADER\nBLOQUE1\nBLOQUE2\n...
+        num_bloques = len(bloques_cifrados)
+        header = f"ENC_V2|{num_bloques}|{len(texto_bytes)}"
+
+        return header + "\n" + "\n".join(bloques_cifrados)
 
     def descifrar_xor(self, texto_cifrado):
-        """Descifra texto cifrado con XOR. Retorna None si falla."""
+        """Descifra texto cifrado con XOR. Intenta recuperar todo lo posible."""
         if not self.cifrado_activo or not self.llave_completa:
             return texto_cifrado
 
+        # Detectar versión del formato
+        if texto_cifrado.startswith("ENC_V2|"):
+            return self.descifrar_xor_v2(texto_cifrado)
+        else:
+            # Formato antiguo (V1) - usar método legacy
+            return self.descifrar_xor_v1(texto_cifrado)
+
+    def descifrar_xor_v2(self, texto_cifrado):
+        """Descifra formato V2 (por bloques con checksums)"""
+        try:
+            lineas = texto_cifrado.split('\n')
+
+            # Parsear header
+            header = lineas[0].split('|')
+            if len(header) != 3 or header[0] != "ENC_V2":
+                raise ValueError("Header inválido")
+
+            num_bloques_esperados = int(header[1])
+            tamanio_original = int(header[2])
+
+            # Procesar bloques
+            bloques_descifrados = []
+            bloques_corruptos = []
+            llave_bytes = self.llave_completa.encode('utf-8')
+
+            for i in range(1, len(lineas)):
+                if not lineas[i].strip():
+                    continue
+
+                try:
+                    # Parsear bloque: CHECKSUM|BASE64_DATA
+                    partes = lineas[i].split('|', 1)
+                    if len(partes) != 2:
+                        bloques_corruptos.append(i - 1)
+                        bloques_descifrados.append(b'')
+                        continue
+
+                    checksum_esperado = int(partes[0], 16)
+                    bloque_b64 = partes[1]
+
+                    # Decodificar de base64
+                    bloque_cifrado = base64.b64decode(bloque_b64.encode('utf-8'))
+
+                    # Aplicar XOR (reversible)
+                    bloque_descifrado = bytearray()
+                    for j, byte in enumerate(bloque_cifrado):
+                        llave_byte = llave_bytes[j % len(llave_bytes)]
+                        bloque_descifrado.append(byte ^ llave_byte)
+
+                    # Verificar checksum
+                    checksum_actual = zlib.crc32(bloque_descifrado) & 0xffffffff
+                    if checksum_actual != checksum_esperado:
+                        bloques_corruptos.append(i - 1)
+                        # Agregar el bloque aunque esté corrupto (puede tener datos útiles)
+                        bloques_descifrados.append(bytes(bloque_descifrado))
+                    else:
+                        bloques_descifrados.append(bytes(bloque_descifrado))
+
+                except Exception as e:
+                    bloques_corruptos.append(i - 1)
+                    bloques_descifrados.append(b'')
+
+            # Unir bloques
+            texto_completo = b''.join(bloques_descifrados)
+
+            # Convertir a texto
+            try:
+                resultado = texto_completo.decode('utf-8', errors='replace')
+            except:
+                resultado = texto_completo.decode('utf-8', errors='ignore')
+
+            # Informar sobre bloques corruptos
+            if bloques_corruptos:
+                messagebox.showwarning(
+                    "Bloques corruptos detectados",
+                    f"Se detectaron {len(bloques_corruptos)} bloques con errores de integridad.\n"
+                    f"Bloques afectados: {', '.join(map(str, bloques_corruptos[:10]))}"
+                    f"{'...' if len(bloques_corruptos) > 10 else ''}\n\n"
+                    f"Los datos recuperables se han cargado.\n"
+                    f"Revise el contenido y guarde una copia limpia."
+                )
+
+            return resultado
+
+        except UnicodeDecodeError:
+            # Clave incorrecta
+            return self.ofrecer_cambio_clave("El resultado del descifrado no es texto válido.\nLa clave probablemente es incorrecta.")
+        except Exception as e:
+            # Error en el formato o estructura
+            messagebox.showerror(
+                "Error de descifrado",
+                f"No se pudo descifrar el archivo.\n"
+                f"Error: {str(e)}\n\n"
+                f"El archivo puede estar corrupto o la clave ser incorrecta."
+            )
+            return self.ofrecer_cambio_clave("Error al descifrar el archivo.")
+
+    def descifrar_xor_v1(self, texto_cifrado):
+        """Descifra formato V1 (legacy - sin bloques)"""
         try:
             # Decodificar de base64
             datos_cifrados = base64.b64decode(texto_cifrado.encode('utf-8'))
@@ -901,9 +1024,196 @@ class EditorTexto:
 
             # Convertir de vuelta a texto
             return resultado.decode('utf-8')
+
+        except base64.binascii.Error as e:
+            # Error en decodificación Base64 - intentar recuperación
+            return self.recuperar_archivo_corrupto(texto_cifrado, "Base64")
+
+        except UnicodeDecodeError as e:
+            # El XOR se aplicó correctamente pero el resultado no es UTF-8 válido
+            # Probablemente la clave es incorrecta
+            return self.ofrecer_cambio_clave("El resultado del descifrado no es texto válido.\nLa clave probablemente es incorrecta.")
+
         except Exception as e:
-            messagebox.showerror("Error de descifrado",
-                f"No se pudo descifrar el archivo. La clave es incorrecta o el archivo está corrupto.\n\n{str(e)}")
+            # Otro tipo de error
+            return self.recuperar_archivo_corrupto(texto_cifrado, f"Desconocido: {str(e)}")
+
+    def recuperar_archivo_corrupto(self, texto_cifrado, tipo_error):
+        """Intenta recuperar la máxima cantidad de información de un archivo corrupto"""
+        # Crear diálogo personalizado con 4 opciones
+        dialogo = tk.Toplevel(self.root)
+        dialogo.title("Error de descifrado")
+        dialogo.geometry("500x280")
+        dialogo.resizable(False, False)
+        dialogo.transient(self.root)
+        dialogo.grab_set()
+
+        # Centrar el diálogo
+        dialogo.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - dialogo.winfo_width()) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - dialogo.winfo_height()) // 2
+        dialogo.geometry(f"+{x}+{y}")
+
+        # Contenido
+        frame = ttk.Frame(dialogo, padding=20)
+        frame.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(frame, text="No se pudo descifrar el archivo completamente.", font=('', 10, 'bold')).pack(pady=(0, 5))
+        ttk.Label(frame, text=f"Tipo de error: {tipo_error}", font=('', 9)).pack(pady=(0, 15))
+        ttk.Label(frame, text="¿Qué desea hacer?", font=('', 9)).pack(pady=(0, 10))
+
+        # Variable para guardar la respuesta
+        respuesta = {'valor': None}
+
+        def opcion_recuperacion():
+            respuesta['valor'] = 'recuperacion'
+            dialogo.destroy()
+
+        def opcion_clave():
+            respuesta['valor'] = 'clave'
+            dialogo.destroy()
+
+        def opcion_sin_encriptar():
+            respuesta['valor'] = 'sin_encriptar'
+            dialogo.destroy()
+
+        def opcion_cancelar():
+            respuesta['valor'] = 'cancelar'
+            dialogo.destroy()
+
+        # Botones
+        ttk.Button(frame, text="Intentar recuperación parcial", command=opcion_recuperacion, width=30).pack(pady=3)
+        ttk.Button(frame, text="Probar con otra clave", command=opcion_clave, width=30).pack(pady=3)
+        ttk.Button(frame, text="Abrir sin descifrar (texto plano)", command=opcion_sin_encriptar, width=30).pack(pady=3)
+        ttk.Button(frame, text="Abrir archivo en blanco", command=opcion_cancelar, width=30).pack(pady=3)
+
+        # Esperar respuesta
+        dialogo.wait_window()
+
+        # Procesar respuesta
+        if respuesta['valor'] == 'recuperacion':
+            return self.intentar_recuperacion_parcial(texto_cifrado)
+        elif respuesta['valor'] == 'clave':
+            return self.ofrecer_cambio_clave("Intente con otra clave de descifrado.")
+        elif respuesta['valor'] == 'sin_encriptar':
+            archivo_temp = self.archivo_actual
+            try:
+                with open(archivo_temp, 'r', encoding='utf-8') as f:
+                    contenido = f.read()
+                messagebox.showinfo(
+                    "Archivo sin descifrar",
+                    "El archivo se abrió sin descifrar.\n"
+                    "Está viendo el contenido cifrado raw."
+                )
+                return contenido
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo leer el archivo:\n{str(e)}")
+                return None
+        else:  # cancelar
+            return None
+
+    def intentar_recuperacion_parcial(self, texto_cifrado):
+        """Intenta recuperar bloques válidos del archivo corrupto"""
+        datos_recuperados = []
+        texto_limpio = texto_cifrado.replace('\n', '').replace('\r', '').replace(' ', '')
+
+        # Intentar decodificar por bloques
+        tamanio_bloque = 4  # Base64 trabaja en bloques de 4 caracteres
+        llave_bytes = self.llave_completa.encode('utf-8')
+
+        for i in range(0, len(texto_limpio), tamanio_bloque):
+            bloque = texto_limpio[i:i+tamanio_bloque]
+
+            # Asegurar que el bloque tenga padding correcto
+            while len(bloque) % 4 != 0:
+                bloque += '='
+
+            try:
+                # Intentar decodificar este bloque
+                datos_bloque = base64.b64decode(bloque.encode('utf-8'))
+
+                # Aplicar XOR
+                resultado_bloque = bytearray()
+                for j, byte in enumerate(datos_bloque):
+                    llave_byte = llave_bytes[(i + j) % len(llave_bytes)]
+                    resultado_bloque.append(byte ^ llave_byte)
+
+                # Intentar decodificar como UTF-8
+                try:
+                    texto_bloque = resultado_bloque.decode('utf-8', errors='replace')
+                    datos_recuperados.append(texto_bloque)
+                except:
+                    # Si falla UTF-8, usar caracteres de reemplazo
+                    datos_recuperados.append(resultado_bloque.decode('utf-8', errors='replace'))
+            except:
+                # Este bloque está corrupto, agregar marcador
+                datos_recuperados.append('[CORRUPTO]')
+
+        texto_recuperado = ''.join(datos_recuperados)
+
+        if texto_recuperado.strip():
+            messagebox.showinfo(
+                "Recuperación parcial",
+                f"Se recuperó información parcial del archivo.\n"
+                f"Los bloques corruptos están marcados como [CORRUPTO].\n\n"
+                f"Revise el contenido y guarde lo que sea útil."
+            )
+            return texto_recuperado
+        else:
+            messagebox.showerror(
+                "Recuperación fallida",
+                "No se pudo recuperar ningún dato del archivo."
+            )
+            return None
+
+    def ofrecer_cambio_clave(self, mensaje_error):
+        """Ofrece al usuario cambiar la clave para reintentar el descifrado"""
+        respuesta = messagebox.askyesnocancel(
+            "Error de descifrado",
+            f"{mensaje_error}\n\n"
+            f"¿Qué desea hacer?\n\n"
+            f"Sí: Probar con otra clave\n"
+            f"No: Abrir sin descifrar (texto plano)\n"
+            f"Cancelar: Abrir archivo en blanco"
+        )
+
+        if respuesta is True:  # Sí - Probar con otra clave
+            # Guardar el archivo actual temporalmente
+            archivo_temp = self.archivo_actual
+
+            # Solicitar nueva clave
+            self.solicitar_clave_sesion()
+            self.actualizar_indicador_cifrado()  # Actualizar indicador
+
+            # Si se ingresó una nueva clave, reintentar
+            if self.cifrado_activo:
+                try:
+                    with open(archivo_temp, 'r', encoding='utf-8') as f:
+                        contenido = f.read()
+                    return self.descifrar_xor(contenido)
+                except:
+                    messagebox.showerror("Error", "No se pudo reabrir el archivo.")
+                    return None
+            else:
+                messagebox.showinfo("Sin cifrado", "Se canceló el cambio de clave.")
+                return None
+
+        elif respuesta is False:  # No - Abrir sin descifrar
+            archivo_temp = self.archivo_actual
+            try:
+                with open(archivo_temp, 'r', encoding='utf-8') as f:
+                    contenido = f.read()
+                messagebox.showinfo(
+                    "Archivo sin descifrar",
+                    "El archivo se abrió sin descifrar.\n"
+                    "Está viendo el contenido cifrado o el texto plano original."
+                )
+                return contenido
+            except Exception as e:
+                messagebox.showerror("Error", f"No se pudo leer el archivo:\n{str(e)}")
+                return None
+
+        else:  # Cancelar - Archivo en blanco
             return None
 
     def cambiar_clave_cifrado(self):
@@ -916,6 +1226,7 @@ class EditorTexto:
         )
         if respuesta:
             self.solicitar_clave_sesion()
+            self.actualizar_indicador_cifrado()  # Actualizar indicador
             if self.cifrado_activo:
                 messagebox.showinfo("Clave cambiada", "La clave de cifrado ha sido actualizada para esta sesión.")
             else:
@@ -924,15 +1235,34 @@ class EditorTexto:
     def mostrar_estado_cifrado(self):
         """Muestra el estado actual del cifrado"""
         if self.cifrado_activo:
-            estado = f"CIFRADO ACTIVO\n\n"
-            estado += f"Clave de sesión: {'*' * len(self.clave_sesion)}\n"
-            estado += f"Longitud de clave: {len(self.clave_sesion)} caracteres\n"
-            estado += f"Longitud de llave completa: {len(self.llave_completa)} caracteres"
+            estado = "Estado: ON\n\n"
+            estado += "Los archivos se guardan y abren cifrados."
         else:
-            estado = "CIFRADO DESACTIVADO\n\n"
+            estado = "Estado: OFF\n\n"
             estado += "Los archivos se guardan y abren sin cifrar."
 
         messagebox.showinfo("Estado de Cifrado", estado)
+
+    def actualizar_indicador_cifrado(self):
+        """Actualiza el indicador de cifrado en la barra de menú"""
+        # Remover el indicador anterior si existe
+        if self.label_cifrado_menu is not None:
+            try:
+                self.menubar.delete(self.label_cifrado_menu)
+            except:
+                pass
+
+        # Agregar nuevo indicador a la derecha
+        if self.cifrado_activo:
+            texto = "Cifrado: ON"
+            # Agregar con estado disabled para que no sea clickeable
+            self.menubar.add_command(label=texto, state="disabled")
+        else:
+            texto = "Cifrado: OFF"
+            self.menubar.add_command(label=texto, state="disabled")
+
+        # Guardar el índice del último elemento agregado
+        self.label_cifrado_menu = self.menubar.index("end")
 
     def salir(self):
         if self.verificar_cambios():

@@ -1,0 +1,69 @@
+================================================================================
+                    EDITOR DE TEXTO - VERSION PORTABLE
+================================================================================
+
+ARCHIVO EJECUTABLE
+------------------
+El archivo "Editor_Texto.exe" es completamente PORTABLE y NO requiere instalación.
+
+CÓMO USAR
+---------
+1. Copia el archivo "Editor_Texto.exe" a cualquier carpeta
+2. Haz doble clic para ejecutarlo
+3. ¡Listo! El editor se abrirá inmediatamente
+
+CARACTERÍSTICAS
+---------------
+✓ No requiere instalación de Python
+✓ No requiere librerías adicionales
+✓ Portable - llévalo en un USB
+✓ Un solo archivo ejecutable (10 MB aprox.)
+✓ Funciona en cualquier Windows (7, 8, 10, 11)
+
+CONFIGURACIÓN
+-------------
+El editor crea automáticamente un archivo "editor_texto.cfg" en la misma
+carpeta donde se encuentra el ejecutable. Este archivo guarda:
+- Preferencias de fuente y colores
+- Último archivo abierto
+- Historial de deshacer/rehacer
+- Estado de la interfaz
+
+Si mueves el ejecutable a otra carpeta, se creará un nuevo archivo de
+configuración en esa ubicación.
+
+CIFRADO
+-------
+Al iniciar el editor, se te pedirá una clave de cifrado:
+- Si ingresas una clave: Todos los archivos se guardarán cifrados
+- Si dejas vacío: Los archivos se guardan sin cifrar (texto plano)
+
+El estado del cifrado se muestra en la barra de menú: "Cifrado: ON/OFF"
+
+FORMATO DE ARCHIVOS CIFRADOS
+----------------------------
+Los archivos cifrados usan el formato ENC_V2 que:
+- Divide el archivo en bloques independientes
+- Cada bloque tiene su propio checksum de integridad
+- Si un bloque se corrompe, el resto se puede recuperar
+- Retrocompatible con archivos antiguos (V1)
+
+RECOMENDACIONES
+---------------
+1. Guarda una copia del ejecutable como respaldo
+2. Recuerda tu clave de cifrado (no se puede recuperar)
+3. Haz copias de seguridad de tus archivos importantes
+4. Puedes tener múltiples copias del ejecutable en diferentes carpetas
+
+RECOMPILAR
+----------
+Si modificaste el código fuente (editor_texto.py), puedes recompilar:
+1. Ejecuta "compilar_exe.bat"
+2. El nuevo ejecutable estará en la carpeta "dist\"
+
+SOPORTE
+-------
+Este es un editor de texto plano independiente desarrollado en Python
+usando solo librerías nativas (tkinter).
+
+================================================================================

@@ -1,3 +1,4 @@
 # No external dependencies required
 # This text editor uses only Python's built-in tkinter library
 # Python 3.x is required
+

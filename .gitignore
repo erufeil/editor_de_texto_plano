@@ -1,0 +1,19 @@
+# Archivos de compilación de PyInstaller
+build/
+dist/
+*.spec
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Archivos de configuración local (opcional - descomenta si no quieres versionar)
+# editor_texto.cfg
+
+# Archivos de prueba
+ej*.txt
+*.enc
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+desktop.ini
